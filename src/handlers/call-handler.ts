@@ -62,8 +62,10 @@ export class CallHandler {
 
         case 'media':
           // Don't send audio to Deepgram while agent is speaking (prevents echo triggering interrupts)
-          if (message.media?.track === 'inbound' && message.media.payload && !this.isSpeaking) {
-            this.deepgram.sendAudio(base64ToBuffer(message.media.payload));
+          if (message.media?.track === 'inbound' && message.media.payload) {
+            if (!this.isSpeaking) {
+              this.deepgram.sendAudio(base64ToBuffer(message.media.payload));
+            }
           }
           break;
 
@@ -82,8 +84,13 @@ export class CallHandler {
   }
 
   private handleTranscript(transcript: string, isFinal: boolean): void {
+    console.log(`[CallHandler] Transcript: "${transcript}" (final: ${isFinal}, isSpeaking: ${this.isSpeaking})`);
+
     // Skip if agent is speaking (we don't send audio while speaking, but just in case)
-    if (this.isSpeaking) return;
+    if (this.isSpeaking) {
+      console.log('[CallHandler] Ignoring transcript - agent is speaking');
+      return;
+    }
 
     this.transcriptBuffer = transcript;
 
@@ -92,6 +99,7 @@ export class CallHandler {
     }
 
     if (isFinal && transcript.trim()) {
+      console.log('[CallHandler] Final transcript, will respond in 500ms');
       this.silenceTimeout = setTimeout(() => {
         this.respond(this.transcriptBuffer);
         this.transcriptBuffer = '';
@@ -155,19 +163,21 @@ export class CallHandler {
             this.sendAudio(prepareAudioForPlivo(audio));
           },
           onComplete: () => {
-            console.log('[CallHandler] TTS complete');
+            console.log('[CallHandler] TTS complete, setting isSpeaking=false');
             this.isSpeaking = false;
-            resolve();
           },
           onError: (error) => {
             console.error('[CallHandler] TTS onError:', error);
             this.isSpeaking = false;
-            resolve();
           },
         });
 
         console.log('[CallHandler] HeyPixa connected, synthesizing...');
         this.heypixa.synthesize(text);
+
+        // Don't wait for completion - resolve immediately so we don't block
+        // The callbacks will handle the audio streaming
+        resolve();
       } catch (error) {
         console.error('[CallHandler] TTS error:', error);
         this.isSpeaking = false;
