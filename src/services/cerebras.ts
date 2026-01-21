@@ -96,10 +96,11 @@ export class CerebrasLLM {
     }
   }
 
-  // Non-streaming version for simpler use cases
+  // Non-streaming version with retry for rate limits
   async generate(
     conversationHistory: CerebrasMessage[],
-    userMessage: string
+    userMessage: string,
+    maxRetries: number = 3
   ): Promise<string> {
     const messages: CerebrasMessage[] = [
       { role: 'system', content: this.systemPrompt },
@@ -107,25 +108,43 @@ export class CerebrasLLM {
       { role: 'user', content: userMessage },
     ];
 
-    const response = await fetch(`${this.baseUrl}/chat/completions`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${this.apiKey}`,
-      },
-      body: JSON.stringify({
-        model: this.model,
-        messages,
-        max_completion_tokens: 500,
-      }),
-    });
+    for (let attempt = 0; attempt < maxRetries; attempt++) {
+      try {
+        const response = await fetch(`${this.baseUrl}/chat/completions`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${this.apiKey}`,
+          },
+          body: JSON.stringify({
+            model: this.model,
+            messages,
+            max_completion_tokens: 500,
+          }),
+        });
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`Cerebras API error: ${response.status} - ${errorText}`);
+        if (response.status === 429) {
+          // Rate limited - wait and retry
+          const waitTime = Math.pow(2, attempt) * 1000; // 1s, 2s, 4s
+          console.log(`[Cerebras] Rate limited, retrying in ${waitTime}ms (attempt ${attempt + 1}/${maxRetries})`);
+          await new Promise(resolve => setTimeout(resolve, waitTime));
+          continue;
+        }
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          throw new Error(`Cerebras API error: ${response.status} - ${errorText}`);
+        }
+
+        const data = await response.json();
+        return data.choices?.[0]?.message?.content || '';
+      } catch (error) {
+        if (attempt === maxRetries - 1) throw error;
+        console.log(`[Cerebras] Error, retrying (attempt ${attempt + 1}/${maxRetries}):`, error);
+      }
     }
 
-    const data = await response.json();
-    return data.choices?.[0]?.message?.content || '';
+    // Fallback response if all retries fail
+    return 'माफ़ कीजिए, कृपया फिर से कहें।';
   }
 }

@@ -15,6 +15,7 @@ export class CallHandler {
   private silenceTimeout: NodeJS.Timeout | null = null;
   private isSpeaking: boolean = false;
   private currentAgentText: string = ''; // Track what agent is saying for smart interrupts
+  private lastAudioSentTime: number = 0; // Track when we last sent audio to detect echo
 
   constructor(plivoWs: WebSocket) {
     this.plivoWs = plivoWs;
@@ -120,19 +121,30 @@ export class CallHandler {
   private shouldInterrupt(transcript: string): boolean {
     const trimmed = transcript.trim().toLowerCase();
 
-    // Minimum length to avoid noise (at least 2 characters for Hindi)
-    if (trimmed.length < 2) {
+    // Minimum length to avoid noise (at least 3 characters)
+    if (trimmed.length < 3) {
       console.log('[CallHandler] Transcript too short for interrupt');
       return false;
     }
 
-    // Check if transcript is similar to what agent is saying (echo)
+    // Timing-based echo detection: if audio was sent recently, this is likely echo
+    // Audio takes ~500-2000ms to play through phone + get transcribed back
+    const timeSinceAudio = Date.now() - this.lastAudioSentTime;
+    const echoWindow = 3000; // 3 second window after sending audio
+
+    if (timeSinceAudio < echoWindow) {
+      console.log(`[CallHandler] Likely echo (${timeSinceAudio}ms since audio sent), ignoring`);
+      return false;
+    }
+
+    // Also check text similarity as backup
     const agentText = this.currentAgentText.toLowerCase();
     if (agentText && this.isSimilar(trimmed, agentText)) {
       console.log('[CallHandler] Transcript matches agent speech (echo), ignoring');
       return false;
     }
 
+    console.log(`[CallHandler] Valid interrupt: "${trimmed}" (${timeSinceAudio}ms since audio)`);
     return true;
   }
 
@@ -234,6 +246,8 @@ export class CallHandler {
 
   private sendAudio(base64Audio: string): void {
     if (this.plivoWs.readyState !== WebSocket.OPEN) return;
+
+    this.lastAudioSentTime = Date.now();
 
     this.plivoWs.send(JSON.stringify({
       event: 'playAudio',
