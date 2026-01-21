@@ -3,8 +3,9 @@ export interface PlivoMediaMessage {
   event: 'media';
   media: {
     track: 'inbound' | 'outbound';
-    chunk: string;
+    chunk: number; // sequence number
     timestamp: string;
+    payload: string; // base64 encoded audio
   };
   streamId: string;
 }

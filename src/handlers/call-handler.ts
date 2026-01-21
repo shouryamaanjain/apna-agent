@@ -70,9 +70,9 @@ export class CallHandler {
           break;
 
         case 'media':
-          if (message.media && message.media.track === 'inbound' && message.media.chunk) {
-            // Decode base64 audio and send to Deepgram
-            const audioBuffer = base64ToBuffer(message.media.chunk);
+          // Plivo sends audio in 'payload' field, 'chunk' is sequence number
+          if (message.media && message.media.track === 'inbound' && message.media.payload) {
+            const audioBuffer = base64ToBuffer(message.media.payload);
             this.deepgram.sendAudio(audioBuffer);
           }
           break;
