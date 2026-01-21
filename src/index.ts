@@ -35,8 +35,8 @@ wss.on('connection', async (ws: WebSocket, req) => {
   try {
     await callHandler.initialize();
 
-    ws.on('message', (data) => {
-      callHandler.handlePlivoMessage(data);
+    ws.on('message', (data, isBinary) => {
+      callHandler.handlePlivoMessage(data, isBinary);
     });
 
     ws.on('close', () => {

@@ -40,9 +40,24 @@ export class CallHandler {
     console.log('[CallHandler] Services initialized');
   }
 
-  handlePlivoMessage(data: WebSocket.Data): void {
+  handlePlivoMessage(data: WebSocket.Data, isBinary: boolean): void {
     try {
-      const message = JSON.parse(data.toString()) as PlivoInboundMessage;
+      // Handle binary audio data directly
+      if (isBinary) {
+        const audioBuffer = Buffer.from(data as Buffer);
+        this.deepgram.sendAudio(audioBuffer);
+        return;
+      }
+
+      // Handle JSON text messages
+      const messageStr = data.toString();
+
+      // Skip empty messages
+      if (!messageStr || messageStr.trim() === '') {
+        return;
+      }
+
+      const message = JSON.parse(messageStr) as PlivoInboundMessage;
 
       switch (message.event) {
         case 'start':
@@ -55,7 +70,7 @@ export class CallHandler {
           break;
 
         case 'media':
-          if (message.media.track === 'inbound') {
+          if (message.media && message.media.track === 'inbound' && message.media.chunk) {
             // Decode base64 audio and send to Deepgram
             const audioBuffer = base64ToBuffer(message.media.chunk);
             this.deepgram.sendAudio(audioBuffer);
@@ -68,7 +83,20 @@ export class CallHandler {
           break;
       }
     } catch (error) {
-      console.error('[CallHandler] Error processing Plivo message:', error);
+      // Only log if it's not a JSON parse error for binary data
+      if (error instanceof SyntaxError) {
+        // Likely binary data that slipped through, try to handle as audio
+        try {
+          const audioBuffer = Buffer.from(data as Buffer);
+          if (audioBuffer.length > 0) {
+            this.deepgram.sendAudio(audioBuffer);
+          }
+        } catch {
+          // Ignore
+        }
+      } else {
+        console.error('[CallHandler] Error processing Plivo message:', error);
+      }
     }
   }
 
