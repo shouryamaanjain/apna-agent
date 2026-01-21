@@ -102,8 +102,9 @@ export interface HeyPixaTextMessage {
 
 export interface HeyPixaStatusMessage {
   type: 'status';
-  status: 'config_updated' | 'synthesizing' | 'done' | 'error';
-  message?: string;
+  message: 'config_updated' | 'synthesizing' | 'done' | 'error';
+  status?: string; // legacy field
+  config?: Record<string, unknown>;
 }
 
 // Call session state

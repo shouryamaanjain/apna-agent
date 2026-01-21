@@ -59,15 +59,17 @@ export class HeyPixaTTS {
             const message = JSON.parse(data.toString()) as HeyPixaStatusMessage;
             console.log('[HeyPixa] Received message:', JSON.stringify(message));
 
-            if (message.status === 'config_updated') {
+            // HeyPixa returns {type: "status", message: "config_updated|done|error"}
+            const status = message.message || message.status;
+            if (status === 'config_updated') {
               console.log('[HeyPixa] Config updated, ready to synthesize');
               this.isConfigured = true;
               clearTimeout(timeout);
               resolve();
-            } else if (message.status === 'done') {
+            } else if (status === 'done') {
               console.log('[HeyPixa] Synthesis done');
               this.callbacks?.onComplete();
-            } else if (message.status === 'error') {
+            } else if (status === 'error') {
               console.error('[HeyPixa] Error:', message.message);
               this.callbacks?.onError(new Error(message.message || 'HeyPixa error'));
             }
