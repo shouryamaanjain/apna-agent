@@ -61,7 +61,8 @@ export class CallHandler {
           break;
 
         case 'media':
-          if (message.media?.track === 'inbound' && message.media.payload) {
+          // Don't send audio to Deepgram while agent is speaking (prevents echo triggering interrupts)
+          if (message.media?.track === 'inbound' && message.media.payload && !this.isSpeaking) {
             this.deepgram.sendAudio(base64ToBuffer(message.media.payload));
           }
           break;
@@ -81,11 +82,8 @@ export class CallHandler {
   }
 
   private handleTranscript(transcript: string, isFinal: boolean): void {
-    // Interrupt if user speaks while agent is talking
-    if (this.isSpeaking && transcript.trim()) {
-      console.log('[CallHandler] Interrupted');
-      this.stopSpeaking();
-    }
+    // Skip if agent is speaking (we don't send audio while speaking, but just in case)
+    if (this.isSpeaking) return;
 
     this.transcriptBuffer = transcript;
 
