@@ -14,7 +14,6 @@ export class CallHandler {
   private transcriptBuffer: string = '';
   private silenceTimeout: NodeJS.Timeout | null = null;
   private isSpeaking: boolean = false;
-  private currentAgentText: string = ''; // Track what agent is saying for smart interrupts
   private lastAudioSentTime: number = 0; // Track when we last sent audio to detect echo
 
   constructor(plivoWs: WebSocket) {
@@ -58,8 +57,7 @@ export class CallHandler {
           this.session.streamId = message.start.streamId;
           this.session.callId = message.start.callId;
           console.log(`[CallHandler] Call started: ${this.session.callId}`);
-          // Send greeting to test TTS pipeline
-          this.speak('नमस्ते, मैं आपकी कैसे मदद कर सकती हूं?');
+          // No greeting - wait for user to speak first
           break;
 
         case 'media':
@@ -85,6 +83,15 @@ export class CallHandler {
 
   private handleTranscript(transcript: string, isFinal: boolean, speechFinal: boolean): void {
     console.log(`[CallHandler] Transcript: "${transcript}" (final: ${isFinal}, speechFinal: ${speechFinal}, isSpeaking: ${this.isSpeaking})`);
+
+    // Check for echo even when not speaking (audio may still be playing through phone)
+    const timeSinceAudio = Date.now() - this.lastAudioSentTime;
+    const echoWindow = 4000; // 4 second window - accounts for audio playback + network delay
+
+    if (timeSinceAudio < echoWindow) {
+      console.log(`[CallHandler] Ignoring likely echo (${timeSinceAudio}ms since audio sent)`);
+      return;
+    }
 
     // Smart interrupt detection when agent is speaking
     if (this.isSpeaking) {
@@ -117,9 +124,9 @@ export class CallHandler {
     }
   }
 
-  // Determine if transcript should trigger an interrupt
+  // Determine if transcript should trigger an interrupt (timing check already done in handleTranscript)
   private shouldInterrupt(transcript: string): boolean {
-    const trimmed = transcript.trim().toLowerCase();
+    const trimmed = transcript.trim();
 
     // Minimum length to avoid noise (at least 3 characters)
     if (trimmed.length < 3) {
@@ -127,37 +134,8 @@ export class CallHandler {
       return false;
     }
 
-    // Timing-based echo detection: if audio was sent recently, this is likely echo
-    // Audio takes ~500-2000ms to play through phone + get transcribed back
-    const timeSinceAudio = Date.now() - this.lastAudioSentTime;
-    const echoWindow = 3000; // 3 second window after sending audio
-
-    if (timeSinceAudio < echoWindow) {
-      console.log(`[CallHandler] Likely echo (${timeSinceAudio}ms since audio sent), ignoring`);
-      return false;
-    }
-
-    // Also check text similarity as backup
-    const agentText = this.currentAgentText.toLowerCase();
-    if (agentText && this.isSimilar(trimmed, agentText)) {
-      console.log('[CallHandler] Transcript matches agent speech (echo), ignoring');
-      return false;
-    }
-
-    console.log(`[CallHandler] Valid interrupt: "${trimmed}" (${timeSinceAudio}ms since audio)`);
+    console.log(`[CallHandler] Valid interrupt: "${trimmed}"`);
     return true;
-  }
-
-  // Simple similarity check - if transcript is contained in agent text, it's likely echo
-  private isSimilar(transcript: string, agentText: string): boolean {
-    // If transcript is a substring of agent text, likely echo
-    if (agentText.includes(transcript)) return true;
-
-    // If first few words match, likely echo
-    const transcriptWords = transcript.split(/\s+/).slice(0, 3).join(' ');
-    if (transcriptWords.length > 3 && agentText.includes(transcriptWords)) return true;
-
-    return false;
   }
 
   private async respond(userMessage: string): Promise<void> {
@@ -200,7 +178,6 @@ export class CallHandler {
     }
 
     this.isSpeaking = true;
-    this.currentAgentText = text; // Track for echo detection
 
     return new Promise(async (resolve) => {
       try {
@@ -219,12 +196,10 @@ export class CallHandler {
           onComplete: () => {
             console.log('[CallHandler] TTS complete, setting isSpeaking=false');
             this.isSpeaking = false;
-            this.currentAgentText = '';
           },
           onError: (error) => {
             console.error('[CallHandler] TTS onError:', error);
             this.isSpeaking = false;
-            this.currentAgentText = '';
           },
         });
 
@@ -267,7 +242,6 @@ export class CallHandler {
     this.heypixa?.close();
     this.heypixa = null;
     this.isSpeaking = false;
-    this.currentAgentText = '';
     this.session.isProcessing = false;
   }
 
