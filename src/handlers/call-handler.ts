@@ -1,6 +1,6 @@
 import WebSocket from 'ws';
 import { DeepgramSTT } from '../services/deepgram.js';
-import { CerebrasLLM } from '../services/cerebras.js';
+import { OpenAILLM } from '../services/openai.js';
 import { HeyPixaTTS } from '../services/heypixa.js';
 import { prepareAudioForPlivo, base64ToBuffer } from '../services/audio.js';
 import type { PlivoInboundMessage, PlivoPlayAudioMessage, CallSession, CerebrasMessage } from '../types/index.js';
@@ -8,7 +8,7 @@ import type { PlivoInboundMessage, PlivoPlayAudioMessage, CallSession, CerebrasM
 export class CallHandler {
   private plivoWs: WebSocket;
   private deepgram: DeepgramSTT;
-  private cerebras: CerebrasLLM;
+  private llm: OpenAILLM;
   private heypixa: HeyPixaTTS | null = null;
   private session: CallSession;
   private transcriptBuffer: string = '';
@@ -20,7 +20,7 @@ export class CallHandler {
   constructor(plivoWs: WebSocket) {
     this.plivoWs = plivoWs;
     this.deepgram = new DeepgramSTT();
-    this.cerebras = new CerebrasLLM();
+    this.llm = new OpenAILLM();
     this.session = {
       callId: '',
       streamId: '',
@@ -167,7 +167,7 @@ export class CallHandler {
     this.session.isProcessing = true;
 
     try {
-      const response = await this.cerebras.generate(
+      const response = await this.llm.generate(
         this.session.conversationHistory,
         userMessage
       );

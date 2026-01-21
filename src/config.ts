@@ -14,11 +14,11 @@ export const config = {
     language: 'hi', // Hindi with Devanagari output
   },
 
-  // Cerebras
-  cerebras: {
-    apiKey: process.env.CEREBRAS_API_KEY || '',
-    model: 'gpt-oss-120b',
-    baseUrl: 'https://api.cerebras.ai/v1',
+  // OpenAI
+  openai: {
+    apiKey: process.env.OPENAI_API_KEY || '',
+    model: process.env.OPENAI_MODEL || 'gpt-4.1-nano-2025-04-14',
+    baseUrl: 'https://api.openai.com/v1',
     systemPrompt: `तुम एक हिंदी असिस्टेंट हो। केवल हिंदी देवनागरी में संक्षिप्त उत्तर दो।`,
   },
 
