@@ -101,11 +101,10 @@ export class CallHandler {
   }
 
   private handleTranscript(transcript: string, isFinal: boolean): void {
-    if (this.isGenerating) {
+    if (this.isGenerating && transcript.trim()) {
       // User is speaking while we're generating - interrupt
       console.log('[CallHandler] User interrupted, stopping generation');
-      this.heypixa?.close();
-      this.isGenerating = false;
+      this.stopSpeaking();
     }
 
     this.transcriptBuffer = transcript;
@@ -222,6 +221,19 @@ export class CallHandler {
     };
 
     this.plivoWs.send(JSON.stringify(message));
+  }
+
+  private stopSpeaking(): void {
+    // Clear Plivo's audio buffer
+    if (this.plivoWs.readyState === WebSocket.OPEN) {
+      this.plivoWs.send(JSON.stringify({ event: 'clearAudio' }));
+    }
+
+    // Stop TTS generation
+    this.heypixa?.close();
+    this.heypixa = null;
+    this.isGenerating = false;
+    this.session.isProcessing = false;
   }
 
   async cleanup(): Promise<void> {
