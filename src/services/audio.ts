@@ -59,8 +59,14 @@ export function base64ToBuffer(base64: string): Buffer {
 
 /**
  * Downsample HeyPixa audio (32kHz) to Plivo format (8kHz) and encode as base64
+ * Adds small silence padding at end to prevent cutoff
  */
 export function prepareAudioForPlivo(heypixaAudio: Buffer): string {
   const resampled = resamplePCM16(heypixaAudio, 32000, 8000);
-  return bufferToBase64(resampled);
+
+  // Add 100ms of silence at the end to prevent cutoff (8000 samples/sec * 0.1 sec * 2 bytes)
+  const silencePadding = Buffer.alloc(1600, 0);
+  const paddedAudio = Buffer.concat([resampled, silencePadding]);
+
+  return bufferToBase64(paddedAudio);
 }
