@@ -2,7 +2,7 @@ import { createClient, LiveTranscriptionEvents, LiveClient } from '@deepgram/sdk
 import { config } from '../config.js';
 
 export interface TranscriptCallback {
-  onTranscript: (transcript: string, isFinal: boolean) => void;
+  onTranscript: (transcript: string, isFinal: boolean, speechFinal: boolean) => void;
   onError: (error: Error) => void;
 }
 
@@ -46,8 +46,9 @@ export class DeepgramSTT {
         const transcript = data.channel?.alternatives?.[0]?.transcript;
         if (transcript && transcript.trim()) {
           const isFinal = data.is_final || false;
-          console.log(`[Deepgram] ${isFinal ? 'Final' : 'Interim'}: ${transcript}`);
-          this.callbacks?.onTranscript(transcript, isFinal);
+          const speechFinal = data.speech_final || false;
+          console.log(`[Deepgram] ${isFinal ? 'Final' : 'Interim'}${speechFinal ? ' (speech_final)' : ''}: ${transcript}`);
+          this.callbacks?.onTranscript(transcript, isFinal, speechFinal);
         }
       });
 

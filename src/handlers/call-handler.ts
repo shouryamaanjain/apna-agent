@@ -14,6 +14,7 @@ export class CallHandler {
   private transcriptBuffer: string = '';
   private silenceTimeout: NodeJS.Timeout | null = null;
   private isSpeaking: boolean = false;
+  private currentAgentText: string = ''; // Track what agent is saying for smart interrupts
 
   constructor(plivoWs: WebSocket) {
     this.plivoWs = plivoWs;
@@ -32,7 +33,7 @@ export class CallHandler {
     console.log('[CallHandler] Initializing...');
 
     await this.deepgram.connect({
-      onTranscript: (transcript, isFinal) => this.handleTranscript(transcript, isFinal),
+      onTranscript: (transcript, isFinal, speechFinal) => this.handleTranscript(transcript, isFinal, speechFinal),
       onError: (error) => console.error('[CallHandler] Deepgram error:', error),
     });
 
@@ -61,11 +62,9 @@ export class CallHandler {
           break;
 
         case 'media':
-          // Don't send audio to Deepgram while agent is speaking (prevents echo triggering interrupts)
+          // Always send audio to Deepgram - smart interrupt logic handles filtering
           if (message.media?.track === 'inbound' && message.media.payload) {
-            if (!this.isSpeaking) {
-              this.deepgram.sendAudio(base64ToBuffer(message.media.payload));
-            }
+            this.deepgram.sendAudio(base64ToBuffer(message.media.payload));
           }
           break;
 
@@ -83,12 +82,22 @@ export class CallHandler {
     }
   }
 
-  private handleTranscript(transcript: string, isFinal: boolean): void {
-    console.log(`[CallHandler] Transcript: "${transcript}" (final: ${isFinal}, isSpeaking: ${this.isSpeaking})`);
+  private handleTranscript(transcript: string, isFinal: boolean, speechFinal: boolean): void {
+    console.log(`[CallHandler] Transcript: "${transcript}" (final: ${isFinal}, speechFinal: ${speechFinal}, isSpeaking: ${this.isSpeaking})`);
 
-    // Skip if agent is speaking (we don't send audio while speaking, but just in case)
+    // Smart interrupt detection when agent is speaking
     if (this.isSpeaking) {
-      console.log('[CallHandler] Ignoring transcript - agent is speaking');
+      // Only consider interrupting on speech_final (user finished speaking)
+      if (speechFinal && this.shouldInterrupt(transcript)) {
+        console.log('[CallHandler] Smart interrupt triggered');
+        this.stopSpeaking();
+        // Process this as user input
+        this.transcriptBuffer = transcript;
+        this.silenceTimeout = setTimeout(() => {
+          this.respond(this.transcriptBuffer);
+          this.transcriptBuffer = '';
+        }, 300); // Shorter delay for interrupts
+      }
       return;
     }
 
@@ -105,6 +114,38 @@ export class CallHandler {
         this.transcriptBuffer = '';
       }, 500);
     }
+  }
+
+  // Determine if transcript should trigger an interrupt
+  private shouldInterrupt(transcript: string): boolean {
+    const trimmed = transcript.trim().toLowerCase();
+
+    // Minimum length to avoid noise (at least 2 characters for Hindi)
+    if (trimmed.length < 2) {
+      console.log('[CallHandler] Transcript too short for interrupt');
+      return false;
+    }
+
+    // Check if transcript is similar to what agent is saying (echo)
+    const agentText = this.currentAgentText.toLowerCase();
+    if (agentText && this.isSimilar(trimmed, agentText)) {
+      console.log('[CallHandler] Transcript matches agent speech (echo), ignoring');
+      return false;
+    }
+
+    return true;
+  }
+
+  // Simple similarity check - if transcript is contained in agent text, it's likely echo
+  private isSimilar(transcript: string, agentText: string): boolean {
+    // If transcript is a substring of agent text, likely echo
+    if (agentText.includes(transcript)) return true;
+
+    // If first few words match, likely echo
+    const transcriptWords = transcript.split(/\s+/).slice(0, 3).join(' ');
+    if (transcriptWords.length > 3 && agentText.includes(transcriptWords)) return true;
+
+    return false;
   }
 
   private async respond(userMessage: string): Promise<void> {
@@ -147,6 +188,7 @@ export class CallHandler {
     }
 
     this.isSpeaking = true;
+    this.currentAgentText = text; // Track for echo detection
 
     return new Promise(async (resolve) => {
       try {
@@ -165,10 +207,12 @@ export class CallHandler {
           onComplete: () => {
             console.log('[CallHandler] TTS complete, setting isSpeaking=false');
             this.isSpeaking = false;
+            this.currentAgentText = '';
           },
           onError: (error) => {
             console.error('[CallHandler] TTS onError:', error);
             this.isSpeaking = false;
+            this.currentAgentText = '';
           },
         });
 
@@ -202,12 +246,14 @@ export class CallHandler {
   }
 
   private stopSpeaking(): void {
+    console.log('[CallHandler] stopSpeaking() called');
     if (this.plivoWs.readyState === WebSocket.OPEN) {
       this.plivoWs.send(JSON.stringify({ event: 'clearAudio' }));
     }
     this.heypixa?.close();
     this.heypixa = null;
     this.isSpeaking = false;
+    this.currentAgentText = '';
     this.session.isProcessing = false;
   }
 
