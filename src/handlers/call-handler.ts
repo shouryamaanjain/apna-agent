@@ -131,41 +131,40 @@ export class CallHandler {
     }
   }
 
-  private speak(text: string): Promise<void> {
-    if (this.isSpeaking) return Promise.resolve();
+  private async speak(text: string): Promise<void> {
+    if (this.isSpeaking) return;
 
     this.isSpeaking = true;
 
-    return new Promise((resolve) => {
-      if (this.heypixa) {
-        this.heypixa.close();
-        this.heypixa = null;
-      }
+    return new Promise(async (resolve) => {
+      try {
+        // Reuse existing connection or create new one
+        if (!this.heypixa) {
+          this.heypixa = new HeyPixaTTS();
+        }
 
-      this.heypixa = new HeyPixaTTS();
+        await this.heypixa.connect({
+          onAudioChunk: (audio) => {
+            this.sendAudio(prepareAudioForPlivo(audio));
+          },
+          onComplete: () => {
+            this.isSpeaking = false;
+            resolve();
+          },
+          onError: () => {
+            this.isSpeaking = false;
+            resolve();
+          },
+        });
 
-      this.heypixa.connect({
-        onAudioChunk: (audio) => {
-          this.sendAudio(prepareAudioForPlivo(audio));
-        },
-        onComplete: () => {
-          this.isSpeaking = false;
-          this.heypixa?.close();
-          this.heypixa = null;
-          resolve();
-        },
-        onError: () => {
-          this.isSpeaking = false;
-          this.heypixa?.close();
-          this.heypixa = null;
-          resolve();
-        },
-      }).then(() => {
-        this.heypixa?.synthesize(text);
-      }).catch(() => {
+        this.heypixa.synthesize(text);
+      } catch (error) {
+        console.error('[CallHandler] TTS error:', error);
         this.isSpeaking = false;
+        this.heypixa?.close();
+        this.heypixa = null;
         resolve();
-      });
+      }
     });
   }
 
