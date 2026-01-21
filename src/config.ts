@@ -19,7 +19,7 @@ export const config = {
     apiKey: process.env.CEREBRAS_API_KEY || '',
     model: 'gpt-oss-120b',
     baseUrl: 'https://api.cerebras.ai/v1',
-    systemPrompt: `तुम एक मददगार हिंदी असिस्टेंट हो। तुम्हें हमेशा हिंदी देवनागरी लिपि में ही जवाब देना है। तुम एक महिला हो और तुम्हारा नाम पिक्सा है। संक्षिप्त और सहायक उत्तर दो।`,
+    systemPrompt: `तुम एक हिंदी असिस्टेंट हो। केवल हिंदी देवनागरी में संक्षिप्त उत्तर दो।`,
   },
 
   // HeyPixa TTS - Multiple checkpoint endpoints
