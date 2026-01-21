@@ -14,6 +14,8 @@ export class CallHandler {
   private transcriptBuffer: string = '';
   private silenceTimeout: NodeJS.Timeout | null = null;
   private isGenerating: boolean = false;
+  private hasGreeted: boolean = false; // Prevent double greeting
+  private isSpeaking: boolean = false; // Guard for concurrent speaking
 
   constructor(plivoWs: WebSocket) {
     this.plivoWs = plivoWs;
@@ -65,8 +67,11 @@ export class CallHandler {
           this.session.callId = message.start.callId;
           console.log(`[CallHandler] Stream started - CallID: ${this.session.callId}`);
 
-          // Send initial greeting
-          this.speakToUser('नमस्ते! मैं पिक्सा हूं। मैं आपकी कैसे मदद कर सकती हूं?');
+          // Send initial greeting only once
+          if (!this.hasGreeted) {
+            this.hasGreeted = true;
+            this.speakToUser('नमस्ते! मैं पिक्सा हूं। मैं आपकी कैसे मदद कर सकती हूं?');
+          }
           break;
 
         case 'media':
@@ -101,8 +106,8 @@ export class CallHandler {
   }
 
   private handleTranscript(transcript: string, isFinal: boolean): void {
-    if (this.isGenerating && transcript.trim()) {
-      // User is speaking while we're generating - interrupt
+    // Only interrupt if actually speaking and transcript has content
+    if (this.isSpeaking && transcript.trim()) {
       console.log('[CallHandler] User interrupted, stopping generation');
       this.stopSpeaking();
     }
@@ -125,84 +130,101 @@ export class CallHandler {
   }
 
   private async processUserInput(userMessage: string): Promise<void> {
-    if (this.session.isProcessing || !userMessage.trim()) {
+    // Don't process if already processing or speaking
+    if (this.session.isProcessing || this.isSpeaking || !userMessage.trim()) {
       return;
     }
 
     console.log(`[CallHandler] Processing user input: ${userMessage}`);
     this.session.isProcessing = true;
-    this.isGenerating = true;
 
     try {
-      // Get LLM response with streaming
-      let responseText = '';
-
-      await this.cerebras.generateResponse(
+      // Get LLM response (non-streaming for simplicity)
+      const fullText = await this.cerebras.generate(
         this.session.conversationHistory,
-        userMessage,
-        {
-          onChunk: (chunk) => {
-            responseText += chunk;
-          },
-          onComplete: async (fullText) => {
-            // Update conversation history
-            this.session.conversationHistory.push(
-              { role: 'user', content: userMessage },
-              { role: 'assistant', content: fullText }
-            );
-
-            // Keep conversation history manageable (last 10 exchanges)
-            if (this.session.conversationHistory.length > 20) {
-              this.session.conversationHistory = this.session.conversationHistory.slice(-20);
-            }
-
-            // Synthesize speech
-            await this.speakToUser(fullText);
-          },
-          onError: (error) => {
-            console.error('[CallHandler] LLM error:', error);
-            this.speakToUser('माफ़ कीजिए, कुछ गड़बड़ हो गई। कृपया दोबारा कोशिश करें।');
-          },
-        }
+        userMessage
       );
+
+      // Update conversation history
+      this.session.conversationHistory.push(
+        { role: 'user', content: userMessage },
+        { role: 'assistant', content: fullText }
+      );
+
+      // Keep conversation history manageable (last 10 exchanges)
+      if (this.session.conversationHistory.length > 20) {
+        this.session.conversationHistory = this.session.conversationHistory.slice(-20);
+      }
+
+      // Synthesize speech (wait for it to complete)
+      await this.speakToUser(fullText);
+
     } catch (error) {
       console.error('[CallHandler] Error processing input:', error);
+      await this.speakToUser('माफ़ कीजिए, कुछ गड़बड़ हो गई। कृपया दोबारा कोशिश करें।');
     } finally {
       this.session.isProcessing = false;
     }
   }
 
   private async speakToUser(text: string): Promise<void> {
-    console.log(`[CallHandler] Speaking: ${text}`);
-
-    try {
-      this.heypixa = new HeyPixaTTS();
-
-      await this.heypixa.connect({
-        onAudioChunk: (audioBuffer) => {
-          // Downsample and send to Plivo immediately for low latency
-          const base64Audio = prepareAudioForPlivo(audioBuffer);
-          this.sendAudioToPlivo(base64Audio);
-        },
-        onComplete: () => {
-          console.log('[CallHandler] TTS synthesis complete');
-          this.isGenerating = false;
-          this.heypixa?.close();
-          this.heypixa = null;
-        },
-        onError: (error) => {
-          console.error('[CallHandler] TTS error:', error);
-          this.isGenerating = false;
-          this.heypixa?.close();
-          this.heypixa = null;
-        },
-      });
-
-      this.heypixa.synthesize(text);
-    } catch (error) {
-      console.error('[CallHandler] Failed to synthesize speech:', error);
-      this.isGenerating = false;
+    // Don't speak if already speaking
+    if (this.isSpeaking) {
+      console.log('[CallHandler] Already speaking, skipping');
+      return;
     }
+
+    console.log(`[CallHandler] Speaking: ${text}`);
+    this.isSpeaking = true;
+    this.isGenerating = true;
+
+    return new Promise((resolve) => {
+      try {
+        // Close any existing TTS connection
+        if (this.heypixa) {
+          this.heypixa.close();
+          this.heypixa = null;
+        }
+
+        this.heypixa = new HeyPixaTTS();
+
+        this.heypixa.connect({
+          onAudioChunk: (audioBuffer) => {
+            // Downsample and send to Plivo immediately for low latency
+            const base64Audio = prepareAudioForPlivo(audioBuffer);
+            this.sendAudioToPlivo(base64Audio);
+          },
+          onComplete: () => {
+            console.log('[CallHandler] TTS synthesis complete');
+            this.isSpeaking = false;
+            this.isGenerating = false;
+            this.heypixa?.close();
+            this.heypixa = null;
+            resolve();
+          },
+          onError: (error) => {
+            console.error('[CallHandler] TTS error:', error);
+            this.isSpeaking = false;
+            this.isGenerating = false;
+            this.heypixa?.close();
+            this.heypixa = null;
+            resolve();
+          },
+        }).then(() => {
+          this.heypixa?.synthesize(text);
+        }).catch((error) => {
+          console.error('[CallHandler] Failed to connect HeyPixa:', error);
+          this.isSpeaking = false;
+          this.isGenerating = false;
+          resolve();
+        });
+      } catch (error) {
+        console.error('[CallHandler] Failed to synthesize speech:', error);
+        this.isSpeaking = false;
+        this.isGenerating = false;
+        resolve();
+      }
+    });
   }
 
   private sendAudioToPlivo(base64Audio: string): void {
@@ -230,8 +252,11 @@ export class CallHandler {
     }
 
     // Stop TTS generation
-    this.heypixa?.close();
-    this.heypixa = null;
+    if (this.heypixa) {
+      this.heypixa.close();
+      this.heypixa = null;
+    }
+    this.isSpeaking = false;
     this.isGenerating = false;
     this.session.isProcessing = false;
   }
@@ -244,6 +269,9 @@ export class CallHandler {
     }
 
     await this.deepgram.close();
-    this.heypixa?.close();
+    if (this.heypixa) {
+      this.heypixa.close();
+      this.heypixa = null;
+    }
   }
 }
