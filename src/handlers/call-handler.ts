@@ -56,6 +56,8 @@ export class CallHandler {
           this.session.streamId = message.start.streamId;
           this.session.callId = message.start.callId;
           console.log(`[CallHandler] Call started: ${this.session.callId}`);
+          // Send greeting to test TTS pipeline
+          this.speak('नमस्ते, मैं आपकी कैसे मदद कर सकती हूं?');
           break;
 
         case 'media':
@@ -132,7 +134,11 @@ export class CallHandler {
   }
 
   private async speak(text: string): Promise<void> {
-    if (this.isSpeaking) return;
+    console.log(`[CallHandler] speak() called with: ${text}`);
+    if (this.isSpeaking) {
+      console.log('[CallHandler] Already speaking, skipping');
+      return;
+    }
 
     this.isSpeaking = true;
 
@@ -140,23 +146,29 @@ export class CallHandler {
       try {
         // Reuse existing connection or create new one
         if (!this.heypixa) {
+          console.log('[CallHandler] Creating new HeyPixaTTS instance');
           this.heypixa = new HeyPixaTTS();
         }
 
+        console.log('[CallHandler] Connecting to HeyPixa...');
         await this.heypixa.connect({
           onAudioChunk: (audio) => {
+            console.log(`[CallHandler] Received audio chunk: ${audio.length} bytes`);
             this.sendAudio(prepareAudioForPlivo(audio));
           },
           onComplete: () => {
+            console.log('[CallHandler] TTS complete');
             this.isSpeaking = false;
             resolve();
           },
-          onError: () => {
+          onError: (error) => {
+            console.error('[CallHandler] TTS onError:', error);
             this.isSpeaking = false;
             resolve();
           },
         });
 
+        console.log('[CallHandler] HeyPixa connected, synthesizing...');
         this.heypixa.synthesize(text);
       } catch (error) {
         console.error('[CallHandler] TTS error:', error);
