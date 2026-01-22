@@ -151,13 +151,10 @@ export class CallHandler {
     console.log(`[Latency] STT + silence delay: ${sttLatency}ms`);
 
     try {
-      const llmStartTime = Date.now();
       const response = await this.llm.generate(
         this.session.conversationHistory,
         userMessage
       );
-      const llmLatency = Date.now() - llmStartTime;
-      console.log(`[Latency] LLM (OpenAI): ${llmLatency}ms`);
 
       console.log(`[Agent]: ${response}`);
 

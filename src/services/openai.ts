@@ -17,7 +17,7 @@ export class OpenAILLM {
     this.systemPrompt = config.openai.systemPrompt;
   }
 
-  // Non-streaming version with retry for rate limits
+  // Streaming version with TTFT logging
   async generate(
     conversationHistory: ChatMessage[],
     userMessage: string,
@@ -28,6 +28,8 @@ export class OpenAILLM {
       ...conversationHistory,
       { role: 'user', content: userMessage },
     ];
+
+    const startTime = Date.now();
 
     for (let attempt = 0; attempt < maxRetries; attempt++) {
       try {
@@ -41,12 +43,12 @@ export class OpenAILLM {
             model: this.model,
             messages,
             max_tokens: 500,
+            stream: true,
           }),
         });
 
         if (response.status === 429) {
-          // Rate limited - wait and retry
-          const waitTime = Math.pow(2, attempt) * 1000; // 1s, 2s, 4s
+          const waitTime = Math.pow(2, attempt) * 1000;
           console.log(`[OpenAI] Rate limited, retrying in ${waitTime}ms (attempt ${attempt + 1}/${maxRetries})`);
           await new Promise(resolve => setTimeout(resolve, waitTime));
           continue;
@@ -57,17 +59,53 @@ export class OpenAILLM {
           throw new Error(`OpenAI API error: ${response.status} - ${errorText}`);
         }
 
-        const data = await response.json();
-        const content = data.choices?.[0]?.message?.content || '';
-        console.log(`[OpenAI] Response: ${content}`);
-        return content;
+        const reader = response.body?.getReader();
+        if (!reader) throw new Error('No response body');
+
+        const decoder = new TextDecoder();
+        let fullText = '';
+        let firstTokenReceived = false;
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          const chunk = decoder.decode(value, { stream: true });
+          const lines = chunk.split('\n');
+
+          for (const line of lines) {
+            if (line.startsWith('data: ')) {
+              const data = line.slice(6).trim();
+              if (data === '[DONE]') continue;
+
+              try {
+                const parsed = JSON.parse(data);
+                const content = parsed.choices?.[0]?.delta?.content;
+                if (content) {
+                  if (!firstTokenReceived) {
+                    firstTokenReceived = true;
+                    const ttft = Date.now() - startTime;
+                    console.log(`[Latency] LLM TTFT (Time to First Token): ${ttft}ms`);
+                  }
+                  fullText += content;
+                }
+              } catch {
+                // Skip malformed JSON
+              }
+            }
+          }
+        }
+
+        const totalTime = Date.now() - startTime;
+        console.log(`[Latency] LLM Total: ${totalTime}ms`);
+        console.log(`[OpenAI] Response: ${fullText}`);
+        return fullText;
       } catch (error) {
         if (attempt === maxRetries - 1) throw error;
         console.log(`[OpenAI] Error, retrying (attempt ${attempt + 1}/${maxRetries}):`, error);
       }
     }
 
-    // Fallback response if all retries fail
     return 'माफ़ कीजिए, कृपया फिर से कहें।';
   }
 }
