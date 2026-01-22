@@ -58,8 +58,9 @@ export const config = {
 
   // Audio settings
   audio: {
-    plivoSampleRate: 8000, // Plivo expects 8kHz
-    heypixaSampleRate: 32000, // HeyPixa outputs 32kHz
+    plivoSampleRate: 16000, // Plivo output at 16kHz for better quality
+    heypixaSampleRate: 32000, // HeyPixa outputs 32kHz (downsampled to 16kHz)
+    elevenlabsSampleRate: 16000, // ElevenLabs outputs 16kHz (no resampling needed)
   },
 };
 

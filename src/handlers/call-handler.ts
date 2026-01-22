@@ -277,7 +277,7 @@ export class CallHandler {
       event: 'playAudio',
       media: {
         contentType: 'audio/x-l16',
-        sampleRate: 8000,
+        sampleRate: 16000,
         payload: base64Audio,
       },
     }));
