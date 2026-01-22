@@ -28,7 +28,7 @@ export class DeepgramSTT {
         model: config.deepgram.model,
         language: config.deepgram.language,
         encoding: 'linear16',
-        sample_rate: config.audio.plivoSampleRate,
+        sample_rate: config.audio.plivoInboundSampleRate, // Plivo inbound is 8kHz
         punctuate: true,
         interim_results: true,
         endpointing: 300,

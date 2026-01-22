@@ -58,7 +58,8 @@ export const config = {
 
   // Audio settings
   audio: {
-    plivoSampleRate: 16000, // Plivo output at 16kHz for better quality
+    plivoInboundSampleRate: 8000, // Plivo sends inbound audio at 8kHz (user's voice)
+    plivoOutboundSampleRate: 16000, // We send outbound audio at 16kHz (TTS to user)
     heypixaSampleRate: 32000, // HeyPixa outputs 32kHz (downsampled to 16kHz)
     elevenlabsSampleRate: 16000, // ElevenLabs outputs 16kHz (no resampling needed)
   },
