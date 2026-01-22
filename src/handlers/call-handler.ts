@@ -15,6 +15,7 @@ export class CallHandler {
   private silenceTimeout: NodeJS.Timeout | null = null;
   private isSpeaking: boolean = false;
   private lastAudioSentTime: number = 0; // Track when we last sent audio to detect echo
+  private userSpeechEndTime: number = 0; // For latency tracking
 
   constructor(plivoWs: WebSocket) {
     this.plivoWs = plivoWs;
@@ -117,6 +118,7 @@ export class CallHandler {
 
     if (isFinal && transcript.trim()) {
       console.log('[CallHandler] Final transcript, will respond in 500ms');
+      this.userSpeechEndTime = Date.now(); // Mark when user finished speaking
       this.silenceTimeout = setTimeout(() => {
         this.respond(this.transcriptBuffer);
         this.transcriptBuffer = '';
@@ -144,11 +146,18 @@ export class CallHandler {
     console.log(`[User]: ${userMessage}`);
     this.session.isProcessing = true;
 
+    const respondStartTime = Date.now();
+    const sttLatency = respondStartTime - this.userSpeechEndTime;
+    console.log(`[Latency] STT + silence delay: ${sttLatency}ms`);
+
     try {
+      const llmStartTime = Date.now();
       const response = await this.llm.generate(
         this.session.conversationHistory,
         userMessage
       );
+      const llmLatency = Date.now() - llmStartTime;
+      console.log(`[Latency] LLM (OpenAI): ${llmLatency}ms`);
 
       console.log(`[Agent]: ${response}`);
 
@@ -162,7 +171,11 @@ export class CallHandler {
         this.session.conversationHistory = this.session.conversationHistory.slice(-20);
       }
 
-      await this.speak(response);
+      const ttsStartTime = Date.now();
+      await this.speak(response, ttsStartTime);
+
+      const totalLatency = Date.now() - this.userSpeechEndTime;
+      console.log(`[Latency] TOTAL (user speech end -> TTS complete): ${totalLatency}ms`);
     } catch (error) {
       console.error('[CallHandler] Error:', error);
     } finally {
@@ -170,7 +183,7 @@ export class CallHandler {
     }
   }
 
-  private async speak(text: string): Promise<void> {
+  private async speak(text: string, ttsStartTime?: number): Promise<void> {
     console.log(`[CallHandler] speak() called with: ${text}`);
     if (this.isSpeaking) {
       console.log('[CallHandler] Already speaking, skipping');
@@ -178,6 +191,8 @@ export class CallHandler {
     }
 
     this.isSpeaking = true;
+    let firstAudioReceived = false;
+    const speakStartTime = ttsStartTime || Date.now();
 
     return new Promise(async (resolve) => {
       try {
@@ -190,10 +205,17 @@ export class CallHandler {
         console.log('[CallHandler] Connecting to HeyPixa...');
         await this.heypixa.connect({
           onAudioChunk: (audio) => {
+            if (!firstAudioReceived) {
+              firstAudioReceived = true;
+              const ttfb = Date.now() - speakStartTime;
+              console.log(`[Latency] TTS Time-to-First-Byte: ${ttfb}ms`);
+            }
             console.log(`[CallHandler] Received audio chunk: ${audio.length} bytes`);
             this.sendAudio(prepareAudioForPlivo(audio));
           },
           onComplete: () => {
+            const ttsTotal = Date.now() - speakStartTime;
+            console.log(`[Latency] TTS Total: ${ttsTotal}ms`);
             console.log('[CallHandler] TTS complete, setting isSpeaking=false');
             this.isSpeaking = false;
           },
