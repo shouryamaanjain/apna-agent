@@ -17,8 +17,10 @@ router.post('/incoming-call', (req: Request, res: Response) => {
   });
 
   // Determine WebSocket URL (use wss:// for production, ws:// for local)
+  // Include 'to' number as query param for TTS routing
   const wsProtocol = config.server.host.includes('localhost') ? 'ws' : 'wss';
-  const wsUrl = `${wsProtocol}://${config.server.host}/media-stream`;
+  const toNumber = req.body.To || '';
+  const wsUrl = `${wsProtocol}://${config.server.host}/media-stream?to=${encodeURIComponent(toNumber)}`;
 
   const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>

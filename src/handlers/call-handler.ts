@@ -19,7 +19,7 @@ export class CallHandler {
   private deepgram: DeepgramSTT;
   private llm: OpenAILLM;
   private tts: TTSProvider | null = null;
-  private ttsProvider: string;
+  private ttsProvider: string = 'heypixa'; // Will be set based on called number
   private session: CallSession;
   private transcriptBuffer: string = '';
   private silenceTimeout: NodeJS.Timeout | null = null;
@@ -27,12 +27,20 @@ export class CallHandler {
   private lastAudioSentTime: number = 0; // Track when we last sent audio to detect echo
   private userSpeechEndTime: number = 0; // For latency tracking
 
-  constructor(plivoWs: WebSocket) {
+  constructor(plivoWs: WebSocket, calledNumber: string = '') {
     this.plivoWs = plivoWs;
     this.deepgram = new DeepgramSTT();
     this.llm = new OpenAILLM();
-    this.ttsProvider = config.tts.provider;
-    console.log(`[CallHandler] Using TTS provider: ${this.ttsProvider}`);
+
+    // Determine TTS provider based on called number
+    const cleanNumber = calledNumber.replace(/\D/g, ''); // Remove non-digits
+    if (cleanNumber.includes(config.tts.elevenLabsNumber) || cleanNumber === config.tts.elevenLabsNumber) {
+      this.ttsProvider = 'elevenlabs';
+    } else {
+      this.ttsProvider = 'heypixa';
+    }
+    console.log(`[CallHandler] Called: ${calledNumber} -> TTS: ${this.ttsProvider}`);
+
     this.session = {
       callId: '',
       streamId: '',
@@ -69,7 +77,7 @@ export class CallHandler {
         case 'start':
           this.session.streamId = message.start.streamId;
           this.session.callId = message.start.callId;
-          console.log(`[CallHandler] Call started: ${this.session.callId}`);
+          console.log(`[CallHandler] Call started: ${this.session.callId}, TTS: ${this.ttsProvider}`);
           // No greeting - wait for user to speak first
           break;
 

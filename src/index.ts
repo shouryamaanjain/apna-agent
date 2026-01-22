@@ -37,7 +37,12 @@ const wss = new WebSocketServer({ server, path: '/media-stream' });
 wss.on('connection', async (ws: WebSocket, req) => {
   console.log('[WebSocket] New connection from:', req.socket.remoteAddress);
 
-  const callHandler = new CallHandler(ws);
+  // Extract 'to' number from query params for TTS routing
+  const url = new URL(req.url || '', `http://${req.headers.host}`);
+  const calledNumber = url.searchParams.get('to') || '';
+  console.log(`[WebSocket] Called number: ${calledNumber}`);
+
+  const callHandler = new CallHandler(ws, calledNumber);
 
   try {
     await callHandler.initialize();

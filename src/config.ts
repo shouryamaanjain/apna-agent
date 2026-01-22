@@ -25,6 +25,9 @@ export const config = {
   // TTS Provider selection
   tts: {
     provider: process.env.TTS_PROVIDER || 'heypixa', // 'heypixa' or 'elevenlabs'
+    // Route TTS based on called number
+    elevenLabsNumber: process.env.ELEVENLABS_PHONE_NUMBER || '918035451536',
+    heypixaNumber: process.env.HEYPIXA_PHONE_NUMBER || '912268093678',
   },
 
   // HeyPixa TTS - Multiple checkpoint endpoints
