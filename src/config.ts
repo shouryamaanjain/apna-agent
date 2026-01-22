@@ -30,7 +30,7 @@ export const config = {
       V3: process.env.HEYPIXA_ENDPOINT_V3 || '',
     } as Record<string, string>,
     activeCheckpoint: process.env.HEYPIXA_ACTIVE_CHECKPOINT || 'V1',
-    voice: process.env.HEYPIXA_VOICE || 'kriti',
+    voice: process.env.HEYPIXA_VOICE || 'neha',
     sampleRate: 32000, // HeyPixa outputs 32kHz
   },
 
