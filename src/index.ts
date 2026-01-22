@@ -16,8 +16,15 @@ app.use(express.urlencoded({ extended: true }));
 app.get('/health', (req, res) => {
   res.json({
     status: 'ok',
-    checkpoint: config.heypixa.activeCheckpoint,
-    voice: config.heypixa.voice,
+    ttsProvider: config.tts.provider,
+    heypixa: {
+      checkpoint: config.heypixa.activeCheckpoint,
+      voice: config.heypixa.voice,
+    },
+    elevenlabs: {
+      voiceId: config.elevenlabs.voiceId,
+      modelId: config.elevenlabs.modelId,
+    },
   });
 });
 
@@ -56,13 +63,16 @@ wss.on('connection', async (ws: WebSocket, req) => {
 
 // Start server
 server.listen(config.server.port, () => {
+  const ttsInfo = config.tts.provider === 'elevenlabs'
+    ? `ElevenLabs (${config.elevenlabs.modelId})`
+    : `HeyPixa (${config.heypixa.activeCheckpoint})`;
+
   console.log(`
 ╔════════════════════════════════════════════════════════════╗
 ║           Hindi Voice Agent - ApnaAgent                    ║
 ╠════════════════════════════════════════════════════════════╣
 ║  Server running on port ${config.server.port}                              ║
-║  HeyPixa Checkpoint: ${config.heypixa.activeCheckpoint.padEnd(36)}║
-║  Voice: ${config.heypixa.voice.padEnd(49)}║
+║  TTS Provider: ${ttsInfo.padEnd(42)}║
 ╠════════════════════════════════════════════════════════════╣
 ║  Endpoints:                                                ║
 ║  - POST /incoming-call  (Plivo webhook)                    ║

@@ -2,14 +2,24 @@ import WebSocket from 'ws';
 import { DeepgramSTT } from '../services/deepgram.js';
 import { OpenAILLM } from '../services/openai.js';
 import { HeyPixaTTS } from '../services/heypixa.js';
-import { prepareAudioForPlivo, base64ToBuffer } from '../services/audio.js';
+import { ElevenLabsTTS } from '../services/elevenlabs.js';
+import { prepareAudioForPlivo, prepareElevenLabsAudioForPlivo, base64ToBuffer } from '../services/audio.js';
+import { config } from '../config.js';
 import type { PlivoInboundMessage, PlivoPlayAudioMessage, CallSession, CerebrasMessage } from '../types/index.js';
+
+// Common TTS interface
+interface TTSProvider {
+  connect(callbacks: { onAudioChunk: (audio: Buffer) => void; onComplete: () => void; onError: (error: Error) => void }): Promise<void>;
+  synthesize(text: string): void;
+  close(): void;
+}
 
 export class CallHandler {
   private plivoWs: WebSocket;
   private deepgram: DeepgramSTT;
   private llm: OpenAILLM;
-  private heypixa: HeyPixaTTS | null = null;
+  private tts: TTSProvider | null = null;
+  private ttsProvider: string;
   private session: CallSession;
   private transcriptBuffer: string = '';
   private silenceTimeout: NodeJS.Timeout | null = null;
@@ -21,6 +31,8 @@ export class CallHandler {
     this.plivoWs = plivoWs;
     this.deepgram = new DeepgramSTT();
     this.llm = new OpenAILLM();
+    this.ttsProvider = config.tts.provider;
+    console.log(`[CallHandler] Using TTS provider: ${this.ttsProvider}`);
     this.session = {
       callId: '',
       streamId: '',
@@ -191,28 +203,38 @@ export class CallHandler {
     let firstAudioReceived = false;
     const speakStartTime = ttsStartTime || Date.now();
 
+    // Select audio converter based on TTS provider
+    const convertAudio = this.ttsProvider === 'elevenlabs'
+      ? prepareElevenLabsAudioForPlivo
+      : prepareAudioForPlivo;
+
     return new Promise(async (resolve) => {
       try {
-        // Reuse existing connection or create new one
-        if (!this.heypixa) {
-          console.log('[CallHandler] Creating new HeyPixaTTS instance');
-          this.heypixa = new HeyPixaTTS();
+        // Create TTS instance based on provider
+        if (!this.tts) {
+          if (this.ttsProvider === 'elevenlabs') {
+            console.log('[CallHandler] Creating new ElevenLabsTTS instance');
+            this.tts = new ElevenLabsTTS();
+          } else {
+            console.log('[CallHandler] Creating new HeyPixaTTS instance');
+            this.tts = new HeyPixaTTS();
+          }
         }
 
-        console.log('[CallHandler] Connecting to HeyPixa...');
-        await this.heypixa.connect({
+        console.log(`[CallHandler] Connecting to ${this.ttsProvider}...`);
+        await this.tts.connect({
           onAudioChunk: (audio) => {
             if (!firstAudioReceived) {
               firstAudioReceived = true;
               const ttfb = Date.now() - speakStartTime;
-              console.log(`[Latency] TTS Time-to-First-Byte: ${ttfb}ms`);
+              console.log(`[Latency] TTS TTFB (${this.ttsProvider}): ${ttfb}ms`);
             }
             console.log(`[CallHandler] Received audio chunk: ${audio.length} bytes`);
-            this.sendAudio(prepareAudioForPlivo(audio));
+            this.sendAudio(convertAudio(audio));
           },
           onComplete: () => {
             const ttsTotal = Date.now() - speakStartTime;
-            console.log(`[Latency] TTS Total: ${ttsTotal}ms`);
+            console.log(`[Latency] TTS Total (${this.ttsProvider}): ${ttsTotal}ms`);
             console.log('[CallHandler] TTS complete, setting isSpeaking=false');
             this.isSpeaking = false;
           },
@@ -222,8 +244,8 @@ export class CallHandler {
           },
         });
 
-        console.log('[CallHandler] HeyPixa connected, synthesizing...');
-        this.heypixa.synthesize(text);
+        console.log(`[CallHandler] ${this.ttsProvider} connected, synthesizing...`);
+        this.tts.synthesize(text);
 
         // Don't wait for completion - resolve immediately so we don't block
         // The callbacks will handle the audio streaming
@@ -231,8 +253,8 @@ export class CallHandler {
       } catch (error) {
         console.error('[CallHandler] TTS error:', error);
         this.isSpeaking = false;
-        this.heypixa?.close();
-        this.heypixa = null;
+        this.tts?.close();
+        this.tts = null;
         resolve();
       }
     });
@@ -258,8 +280,8 @@ export class CallHandler {
     if (this.plivoWs.readyState === WebSocket.OPEN) {
       this.plivoWs.send(JSON.stringify({ event: 'clearAudio' }));
     }
-    this.heypixa?.close();
-    this.heypixa = null;
+    this.tts?.close();
+    this.tts = null;
     this.isSpeaking = false;
     this.session.isProcessing = false;
   }
@@ -267,6 +289,6 @@ export class CallHandler {
   async cleanup(): Promise<void> {
     if (this.silenceTimeout) clearTimeout(this.silenceTimeout);
     await this.deepgram.close();
-    this.heypixa?.close();
+    this.tts?.close();
   }
 }

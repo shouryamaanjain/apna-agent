@@ -22,6 +22,11 @@ export const config = {
     systemPrompt: `तुम एक हिंदी असिस्टेंट हो। केवल हिंदी देवनागरी में संक्षिप्त उत्तर दो।`,
   },
 
+  // TTS Provider selection
+  tts: {
+    provider: process.env.TTS_PROVIDER || 'heypixa', // 'heypixa' or 'elevenlabs'
+  },
+
   // HeyPixa TTS - Multiple checkpoint endpoints
   heypixa: {
     endpoints: {
@@ -32,6 +37,14 @@ export const config = {
     activeCheckpoint: process.env.HEYPIXA_ACTIVE_CHECKPOINT || 'V1',
     voice: process.env.HEYPIXA_VOICE || 'neha',
     sampleRate: 32000, // HeyPixa outputs 32kHz
+  },
+
+  // ElevenLabs TTS
+  elevenlabs: {
+    apiKey: process.env.ELEVENLABS_API_KEY || '',
+    voiceId: process.env.ELEVENLABS_VOICE_ID || 'gWIZtiCcYnvLguTazwbO', // devi
+    modelId: process.env.ELEVENLABS_MODEL_ID || 'eleven_turbo_v2_5',
+    sampleRate: 16000, // Using pcm_16000
   },
 
   // Server

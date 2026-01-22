@@ -70,3 +70,17 @@ export function prepareAudioForPlivo(heypixaAudio: Buffer): string {
 
   return bufferToBase64(paddedAudio);
 }
+
+/**
+ * Downsample ElevenLabs audio (16kHz) to Plivo format (8kHz) and encode as base64
+ * Adds small silence padding at end to prevent cutoff
+ */
+export function prepareElevenLabsAudioForPlivo(elevenLabsAudio: Buffer): string {
+  const resampled = resamplePCM16(elevenLabsAudio, 16000, 8000);
+
+  // Add 100ms of silence at the end to prevent cutoff
+  const silencePadding = Buffer.alloc(1600, 0);
+  const paddedAudio = Buffer.concat([resampled, silencePadding]);
+
+  return bufferToBase64(paddedAudio);
+}
